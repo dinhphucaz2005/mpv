@@ -39,6 +39,8 @@
 #include "gpu/hwdec.h"
 #include "gpu/video.h"
 
+#include "gpu/visualizer.h"
+
 struct gpu_priv {
     struct mp_log *log;
     struct ra_ctx *ctx;
@@ -48,7 +50,10 @@ struct gpu_priv {
     struct gl_video *renderer;
 
     int events;
+
+    struct gpu_visualizer *visualizer;
 };
+
 static void resize(struct vo *vo)
 {
     struct gpu_priv *p = vo->priv;
@@ -61,13 +66,14 @@ static void resize(struct vo *vo)
     vo_get_src_dst_rects(vo, &src, &dst, &osd);
 
     gl_video_resize(p->renderer, &src, &dst, &osd);
+    gpu_visualizer_resize(p->visualizer, vo->dwidth, vo->dheight);
 
     int fb_depth = sw->fns->color_depth ? sw->fns->color_depth(sw) : 0;
     if (fb_depth)
         MP_VERBOSE(p, "Reported display depth: %d\n", fb_depth);
     gl_video_set_fb_depth(p->renderer, fb_depth);
 
-    vo->want_redraw = true;
+    vo_redraw(vo);
 }
 
 static bool draw_frame(struct vo *vo, struct vo_frame *frame)
@@ -80,6 +86,8 @@ static bool draw_frame(struct vo *vo, struct vo_frame *frame)
         return VO_FALSE;
 
     gl_video_render_frame(p->renderer, frame, &fbo, RENDER_FRAME_DEF);
+    if (gpu_visualizer_draw(p->visualizer, vo->extra.wakeup_ctx, fbo.tex))
+        vo_redraw(vo);
     if (!sw->fns->submit_frame(sw, frame)) {
         MP_ERR(vo, "Failed presenting frame!\n");
         return VO_FALSE;
@@ -210,7 +218,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
         get_and_update_icc_profile(p);
         if (p->ctx->fns->update_render_opts)
             p->ctx->fns->update_render_opts(p->ctx);
-        vo->want_redraw = true;
+        vo_redraw(vo);
         talloc_free(ctx_opts);
         return true;
     }
@@ -219,7 +227,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
         return true;
     case VOCTRL_PAUSE:
         if (gl_video_showing_interpolated_frame(p->renderer))
-            vo->want_redraw = true;
+            vo_redraw(vo);
         return true;
     case VOCTRL_PERFORMANCE_DATA:
         gl_video_perfdata(p->renderer, (struct voctrl_performance_data *)data);
@@ -234,18 +242,18 @@ static int control(struct vo *vo, uint32_t request, void *data)
     int r = p->ctx->fns->control(p->ctx, &events, request, data);
     if (events & VO_EVENT_ICC_PROFILE_CHANGED) {
         get_and_update_icc_profile(p);
-        vo->want_redraw = true;
+        vo_redraw(vo);
     }
     if (events & VO_EVENT_AMBIENT_LIGHTING_CHANGED) {
         get_and_update_ambient_lighting(p);
-        vo->want_redraw = true;
+        vo_redraw(vo);
     }
     events |= p->events;
     p->events = 0;
     if (events & VO_EVENT_RESIZE)
         resize(vo);
     if (events & VO_EVENT_EXPOSE)
-        vo->want_redraw = true;
+        vo_redraw(vo);
     vo_event(vo, events);
 
     return r;
@@ -280,6 +288,8 @@ static void uninit(struct vo *vo)
 {
     struct gpu_priv *p = vo->priv;
 
+    gpu_visualizer_destroy(&p->visualizer);
+
     gl_video_uninit(p->renderer);
     mp_mutex_lock(&vo->params_mutex);
     vo->target_params = NULL;
@@ -309,6 +319,11 @@ static int preinit(struct vo *vo)
     p->renderer = gl_video_init(p->ctx->ra, vo->log, vo->global);
     gl_video_set_osd_source(p->renderer, vo->osd);
     gl_video_configure_queue(p->renderer, vo);
+
+    /* Initialise visualizer for any RA backend */
+    p->visualizer = gpu_visualizer_create(p->ctx->ra, vo->global, vo->log);
+    if (p->visualizer)
+        gpu_visualizer_resize(p->visualizer, vo->dwidth, vo->dheight);
 
     get_and_update_icc_profile(p);
 

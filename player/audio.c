@@ -645,6 +645,44 @@ static void update_throttle(struct MPContext *mpctx)
     }
 }
 
+static void update_pcm_buffer(struct MPContext *mpctx, struct mp_aframe *af)
+{
+    const int samples = mp_aframe_get_size(af);
+    const int channels = mp_aframe_get_channels(af);
+    const int format = mp_aframe_get_format(af);
+    uint8_t **data = mp_aframe_get_data_ro(af);
+    if (!data)
+        return;
+
+    for (int s = 0; s < samples; s++) {
+        float mixed = 0;
+        if (af_fmt_is_planar(format)) {
+            for (int c = 0; c < channels; c++) {
+                if (format == AF_FORMAT_FLOATP)
+                    mixed += ((float *)data[c])[s];
+                else if (format == AF_FORMAT_S16P)
+                    mixed += ((int16_t *)data[c])[s] / 32768.0f;
+                else if (format == AF_FORMAT_S32P)
+                    mixed += ((int32_t *)data[c])[s] / 2147483648.0f;
+            }
+        } else {
+            for (int c = 0; c < channels; c++) {
+                if (format == AF_FORMAT_FLOAT)
+                    mixed += ((float *)data[0])[s * channels + c];
+                else if (format == AF_FORMAT_S16)
+                    mixed += ((int16_t *)data[0])[s * channels + c] / 32768.0f;
+                else if (format == AF_FORMAT_S32)
+                    mixed += ((int32_t *)data[0])[s * channels + c] / 2147483648.0f;
+            }
+        }
+        mixed /= channels;
+        if (mpctx->visualizer && mpctx->visualizer->in_raw) {
+            mpctx->visualizer->in_raw[mpctx->visualizer->pcm_buffer_index] = mixed;
+            mpctx->visualizer->pcm_buffer_index = (mpctx->visualizer->pcm_buffer_index + 1) % mpctx->visualizer->pcm_buffer_size;
+        }
+    }
+}
+
 static void ao_process(struct mp_filter *f)
 {
     struct ao_chain *ao_c = f->priv;
@@ -748,6 +786,7 @@ static void ao_process(struct mp_filter *f)
             MP_VERBOSE(mpctx, "previous audio still playing; continuing\n");
         }
 
+        update_pcm_buffer(mpctx, af);
         mp_pin_in_write(ao_c->queue_filter->pins[0], frame);
     } else if (frame.type == MP_FRAME_EOF) {
         MP_VERBOSE(mpctx, "audio filter EOF\n");

@@ -241,6 +241,7 @@ sources = files(
     'video/out/gpu/utils.c',
     'video/out/gpu/video.c',
     'video/out/gpu/video_shaders.c',
+    'video/out/gpu/visualizer.c',
     'video/out/libmpv_sw.c',
     'video/out/vo.c',
     'video/out/vo_gpu.c',
@@ -1298,7 +1299,7 @@ if features['gl']
                      'video/out/opengl/formats.c',
                      'video/out/opengl/libmpv_gl.c',
                      'video/out/opengl/ra_gl.c',
-                     'video/out/opengl/utils.c')
+                     'video/out/opengl/utils.c',)
 elif not features['gl'] and get_option('gl').enabled()
     error('gl enabled but no OpenGL video output could be found!')
 endif
@@ -1924,3 +1925,6 @@ summary({'cocoa': features['cocoa'] and features['swift'],
          'wayland': features['wayland'],
          'x11': features['x11']},
          bool_yn: true)
+
+alias_target('mpv-bin', mpv)
+alias_target('mpv-lib', libmpv)

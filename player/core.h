@@ -238,6 +238,24 @@ extern const int num_ptracks[STREAM_TYPE_COUNT];
 // Maximum of all num_ptracks[] values.
 #define MAX_PTRACKS 2
 
+struct mp_visualizer {
+    int pcm_buffer_size;
+    int pcm_buffer_index;
+
+    /* FFT data */
+    size_t sample_rate;
+
+    float *in_raw;
+    float *in_win;
+    float (*out_raw)[2];
+
+    float *out_log;
+    float *out_smooth;
+    float *out_smear;
+};
+
+struct mp_visualizer *mp_visualizer_create(void *parent);
+
 typedef struct MPContext {
     bool initialized;
     bool is_cli;
@@ -479,7 +497,10 @@ typedef struct MPContext {
     int open_res_error;
 
     struct mp_als *als_state; // lazily initialized on first use
+
+    struct mp_visualizer *visualizer;
 } MPContext;
+
 
 // Contains information about an asynchronous work item, how it can be aborted,
 // and when. All fields are protected by MPContext.abort_lock.

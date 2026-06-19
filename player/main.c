@@ -254,6 +254,38 @@ static bool check_locale(void)
     return !name || strcmp(name, "C") == 0 || strcmp(name, "C.UTF-8") == 0;
 }
 
+struct mp_visualizer *mp_visualizer_create(void *parent) {
+    const int pcm_buffer_size = 1 << 13;
+
+    struct mp_visualizer *vis =
+            talloc_zero(parent, struct mp_visualizer);
+
+    if (!vis)
+        return NULL;
+
+    vis->pcm_buffer_size = pcm_buffer_size;
+    vis->pcm_buffer_index = 0;
+    vis->sample_rate = 0;
+
+    vis->in_raw = talloc_array(vis, float, pcm_buffer_size);
+    vis->in_win = talloc_array(vis, float, pcm_buffer_size);
+    vis->out_raw = (float (*)[2]) talloc_size(
+        vis,
+        sizeof(float[2]) * pcm_buffer_size
+    );
+    vis->out_log = talloc_array(vis, float, pcm_buffer_size);
+    vis->out_smooth = talloc_array(vis, float, pcm_buffer_size);
+    vis->out_smear = talloc_array(vis, float, pcm_buffer_size);
+
+    if (!vis->in_raw || !vis->in_win || !vis->out_raw ||
+        !vis->out_log || !vis->out_smooth || !vis->out_smear) {
+        talloc_free(vis);
+        return NULL;
+    }
+
+    return vis;
+}
+
 struct MPContext *mp_create(void)
 {
     if (!check_locale()) {
@@ -281,6 +313,7 @@ struct MPContext *mp_create(void)
         .thread_pool = mp_thread_pool_create(mpctx, 0, 1, 30),
         .stop_play = PT_NEXT_ENTRY,
         .play_dir = 1,
+        .visualizer = mp_visualizer_create(mpctx),
     };
 
     mp_mutex_init(&mpctx->abort_lock);
